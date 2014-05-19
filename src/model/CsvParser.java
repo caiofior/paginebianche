@@ -24,6 +24,8 @@ import controler.Controler;
 import java.net.URLEncoder;
 import java.util.Date;
 import java.util.Iterator;
+import java.util.Queue;
+import java.util.LinkedList;
 import java.util.LinkedHashMap;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -42,6 +44,9 @@ public class CsvParser extends Thread {
 	private int pos=0;
 	private long startDateTime;
 	private long lastDateTime;
+        private Integer nRecords;
+        private String separator;
+        
 	/**
 	 * Prepares the data
 	 * @param file File to open
@@ -49,11 +54,13 @@ public class CsvParser extends Thread {
 	 * @param label Label with the progress
 	 * @param controler Controller of the actions
 	 */
-	public CsvParser(File file, JTable table,JLabel label, Controler controler) {
+	public CsvParser(File file, JTable table,JLabel label, Controler controler,Integer nRecors, String separator) {
 		this.file = file;
 		this.table = table;
 		this.controler = controler;
 		this.label = label;
+                this.nRecords = nRecors;
+                this.separator = separator;
 		this.WHITE_PAGES_URL = this.controler.get_config().getProperty("WHITE_PAGES_URL");
 	}
 	/**
@@ -72,6 +79,7 @@ public class CsvParser extends Thread {
 		BufferedWriter bw=null;
 		File write_file=null;
 		int lineNumber = 0;
+                int recordNumber = 0;
 		double charCount = 0;
 		try {
 			br = new BufferedReader( new FileReader(this.file));
@@ -111,7 +119,7 @@ public class CsvParser extends Thread {
 			while ((strLine = br.readLine()) != null) {
 				charCount += strLine.length();
 				strLine.replace("\"", "").replace("'", "");
-				st = new StringTokenizer(strLine, ";");
+				st = new StringTokenizer(strLine, this.separator);
 				while (st.hasMoreTokens()) {
 					try{
 					input[tokenNumber]=st.nextToken();
@@ -122,7 +130,7 @@ public class CsvParser extends Thread {
 				this.lastDateTime = new Date().getTime();
 				String text = this.getDateTime(this.startDateTime,this.lastDateTime)+" Ricerca di "+input[0]+" "+input[1];
 				model.insertRow(0, new Object[]{text});
-				LinkedHashMap results = null;
+				Queue results = null;
 				try {
 				results = this.getData(input[0], input[1]);
 				} catch (MalformedURLException e ) {
@@ -130,30 +138,36 @@ public class CsvParser extends Thread {
 				} catch (IOException e) {
 					model.insertRow(0,new Object[] {"Errore nell'apertura del file"});
 				} catch (Exception e) {
-                    results = new LinkedHashMap <String,String> ();
+                                results = new LinkedList();
 					model.insertRow(0,new Object[] {"Errore nel file in input"});
 				}
-				Iterator keys = null;
-				if (lineNumber == 0) {
-					keys = results.keySet().iterator();
-					while (keys.hasNext()) {
-					  bw.write(keys.next().toString());
-					  if (keys.hasNext())
-						  bw.write(";");
-					  else
-						  bw.newLine();
-					}
-					
-				}
-				keys = results.values().iterator();
-				while (keys.hasNext()) {
-				  bw.write("\""+keys.next().toString()+"\"");
-				  if (keys.hasNext())
-					  bw.write(";");
-				  else
-					  bw.newLine();
-				}
-				bw.flush();;
+                                LinkedHashMap result ;
+                                while (!results.isEmpty()) {
+
+                                 result = (LinkedHashMap) results.poll();
+                                 Iterator keys = null;
+                                 if (lineNumber == 0 && recordNumber ==0) {
+                                         keys = result.keySet().iterator();
+                                         while (keys.hasNext()) {
+                                           bw.write(keys.next().toString());
+                                           if (keys.hasNext())
+                                                   bw.write(this.separator);
+                                           else
+                                                   bw.newLine();
+                                         }
+
+                                 }
+                                 keys = result.values().iterator();
+                                 while (keys.hasNext()) {
+                                   bw.write("\""+keys.next().toString()+"\"");
+                                   if (keys.hasNext())
+                                           bw.write(this.separator);
+                                   else
+                                           bw.newLine();
+                                 }
+                                 bw.flush();
+                                 recordNumber++;
+                                }
 				input = new String[2];
 				tokenNumber = 0;
 				lineNumber++;
@@ -184,12 +198,8 @@ public class CsvParser extends Thread {
 	 * @throws MalformedURLException
 	 * @throws IOException 
 	 */
-	private LinkedHashMap getData(String name, String province) throws Exception, MalformedURLException , IOException {
-		LinkedHashMap <String,String>  results = new LinkedHashMap <String,String> ();
-		results.put("searched_name",name);
-		results.put("searched_place",province);
-		String content = "";
-		String line = "";
+	private Queue getData(String name, String province) throws Exception, MalformedURLException , IOException {
+		LinkedList <LinkedHashMap> results = new LinkedList<LinkedHashMap>();
 		int sleep = 5+new Random().nextInt(5);
         URL url=null;
         try{
@@ -205,55 +215,71 @@ public class CsvParser extends Thread {
 		String common_text = this.pos+"% Finirò tra "+eta+" ";
 		this.label.setText(common_text);
 		BufferedReader reader = new BufferedReader(new InputStreamReader(url.openStream()));
-		while ((line = reader.readLine()) != null) {
-			content = content.concat(line);
-		}
-		
-		Matcher name_pattern = Pattern.compile(this.controler.get_config().getProperty("NAME_PATTERN")).matcher(content);
-		if(name_pattern.find()) {
-			results.put("name", this.removeTags(name_pattern.group(0)));
-		}
-		else
-			results.put("name", "");
-		
-		Matcher zip_pattern = Pattern.compile(this.controler.get_config().getProperty("ZIP_PATTERN")).matcher(content);
-		if(zip_pattern.find())
-			results.put("zip", this.removeTags(zip_pattern.group(0)));
-		else
-			results.put("zip", "");
-				
-		Matcher city_pattern = Pattern.compile(this.controler.get_config().getProperty("CITY_PATTERN")).matcher(content);
-		if(city_pattern.find())
-			results.put("city", this.removeTags(city_pattern.group(0)));
-		else
-			results.put("city", "");
+                LinkedHashMap <String,String>  result;
+                String line = "";
+               String content = "";
 
-		Matcher province_pattern = Pattern.compile(this.controler.get_config().getProperty("PROVINCE_PATTERN")).matcher(content);
-		if(province_pattern.find())
-			results.put("province", this.removeTags(province_pattern.group(0)));
-		else
-			results.put("province", "");
+               while ((line = reader.readLine()) != null) {
+                       content = content.concat(line);
+               }
+               Matcher name_pattern = Pattern.compile(this.controler.get_config().getProperty("NAME_PATTERN")).matcher(content);
+               Matcher zip_pattern = Pattern.compile(this.controler.get_config().getProperty("ZIP_PATTERN")).matcher(content);
+               Matcher city_pattern = Pattern.compile(this.controler.get_config().getProperty("CITY_PATTERN")).matcher(content);
+               Matcher province_pattern = Pattern.compile(this.controler.get_config().getProperty("PROVINCE_PATTERN")).matcher(content);                  
+               Matcher address_pattern = Pattern.compile(this.controler.get_config().getProperty("ADDRESS_PATTERN")).matcher(content);
+               Matcher tel_pattern = Pattern.compile(this.controler.get_config().getProperty("PHONE_PATTERN")).matcher(content);
+                for(int i=0; i<this.nRecords; i++){
+                result = new LinkedHashMap <String,String> ();
+		result.put("searched_name",name);
+		result.put("searched_place",province);
 		
-		Matcher address_pattern = Pattern.compile(this.controler.get_config().getProperty("ADDRESS_PATTERN")).matcher(content);
-		if(address_pattern.find())
-			results.put("address", this.removeTags(address_pattern.group(0)));
-		else
-			results.put("address", "");
+		
+                  
+                  if(name_pattern.find()) {
+                          result.put("name", this.removeTags(name_pattern.group()));
+                  }
+                  else
+                          result.put("name", "");
 
-		Matcher tel_pattern = Pattern.compile(this.controler.get_config().getProperty("PHONE_PATTERN")).matcher(content);
-		if(tel_pattern.find())
-			results.put("tel", this.removeTags(tel_pattern.group(0)).replaceAll("[a-zA-Z:]", "").trim());
-		else
-			results.put("tel", "");
-		String dots = "";
-		try{
-			for (int c = 0; c < sleep; c++) {
-				dots += ".";
-				this.label.setText(common_text+" "+dots);
-				Thread.sleep(1000);
-			}
-		}
-		catch (InterruptedException e) {}
+                  
+                  if(zip_pattern.find())
+                          result.put("zip", this.removeTags(zip_pattern.group()));
+                  else
+                          result.put("zip", "");
+
+
+                  if(city_pattern.find())
+                          result.put("city", this.removeTags(city_pattern.group()));
+                  else
+                          result.put("city", "");
+
+                  
+                  if(province_pattern.find())
+                          result.put("province", this.removeTags(province_pattern.group()));
+                  else
+                          result.put("province", "");
+
+                  
+                  if(address_pattern.find())
+                          result.put("address", this.removeTags(address_pattern.group()));
+                  else
+                          result.put("address", "");
+
+                  if(tel_pattern.find())
+                          result.put("tel", this.removeTags(tel_pattern.group()).replaceAll("[a-zA-Z:]", "").trim());
+                  else
+                          result.put("tel", "");
+                  results.add(result);
+                }
+                  String dots = "";
+                  try{
+                          for (int c = 0; c < sleep; c++) {
+                                  dots += ".";
+                                  this.label.setText(common_text+" "+dots);
+                                  Thread.sleep(1000);
+                          }
+                  }
+                  catch (InterruptedException e) {}
 		return results;
 	}
 	/**

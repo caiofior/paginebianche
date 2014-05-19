@@ -89,10 +89,12 @@ public class Controler {
 				}
 				else if (task == "parsefile") {
 					File file = (File) action.get("file");
+                                        Integer nRecords = (Integer) action.get("nRecords");
+                                        String separator = (String) action.get("separator");
 					ParseFile panel = new ParseFile(this);
 					this.frame.setContentPane(panel);
 					this.frame.pack();
-					CsvParser csvparser = new CsvParser(file, panel.getTableLog(),panel.getLabelProgress(),this);
+					CsvParser csvparser = new CsvParser(file, panel.getTableLog(),panel.getLabelProgress(),this,nRecords,separator);
 					csvparser.start();
 					return;
 				}
